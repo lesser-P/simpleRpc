@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"simpleRpc"
-	"simpleRpc/codec"
+	"simpleRpc/client"
+	"sync"
 	"time"
 )
 
@@ -21,26 +21,27 @@ func startServer(addr chan string) {
 }
 
 func main() {
+	log.SetFlags(0)
 	addr := make(chan string)
 	go startServer(addr)
+	cli, _ := client.Dial("tcp", <-addr)
 
-	conn, _ := net.Dial("tcp", <-addr)
-	defer func() { conn.Close() }()
+	defer func() { _ = cli.Close() }()
 	time.Sleep(time.Second)
-	// send options
-	// 把DefaultOption编码成Json格式添加到conn中并通过conn网络连接发送出去
-	_ = json.NewEncoder(conn).Encode(simpleRpc.DefaultOption)
-	cc := codec.NewGobCodec(conn)
+	// send request receive response
+	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {
-		h := &codec.Header{
-			ServiceMethod: "Foo.Sum",
-			Seq:           uint64(i),
-		}
-		_ = cc.Write(h, fmt.Sprintf("simpleRpc req %d", h.Seq))
-		_ = cc.ReadHeader(h)
-		var reply string
-		_ = cc.ReadBody(&reply)
-		log.Println("reply:", reply)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			args := fmt.Sprintf("simpleRpc req %d", i)
+			var reply string
+			// 发起调用
+			if err := cli.Call("Foo.Sum", args, &reply); err != nil {
+				log.Fatal("call Foo.Sum error:", err)
+			}
+			log.Println("reply:", reply)
+		}(i)
 	}
-
+	wg.Wait()
 }
