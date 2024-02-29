@@ -11,6 +11,7 @@ import (
 )
 
 func startServer(addr chan string) {
+	// 在随机的端口创建一个监听
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		log.Fatal("network error:", err)
@@ -23,13 +24,17 @@ func startServer(addr chan string) {
 func main() {
 	log.SetFlags(0)
 	addr := make(chan string)
+	// 启动服务端
 	go startServer(addr)
+
+	// 启动客户端
 	cli, _ := client.Dial("tcp", <-addr)
 
 	defer func() { _ = cli.Close() }()
 	time.Sleep(time.Second)
 	// send request receive response
 	var wg sync.WaitGroup
+	// 发起5次调用
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(i int) {
