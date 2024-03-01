@@ -1,13 +1,15 @@
-package simpleRpc
+package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"reflect"
 	"simpleRpc/codec"
+	"strings"
 	"sync"
 )
 
@@ -20,6 +22,8 @@ type Option struct {
 type request struct {
 	h            *codec.Header
 	argv, replyv reflect.Value // 请求的参数和返回值
+	mtype        *methodType
+	svc          *service
 }
 
 // 编解码方式
@@ -30,6 +34,8 @@ var DefaultOption = &Option{
 
 // Option由JSON来编解码，Header和Body由CodeType来决定编解码方式
 type Server struct {
+	// 同步映射，用于存储服务名称到服务实例的映射
+	serviceMap sync.Map
 }
 
 func NewServer() *Server {
@@ -127,10 +133,21 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 		return nil, err
 	}
 	req := &request{h: h}
-	req.argv = reflect.New(reflect.TypeOf(""))
-	// Interface()方法被用来获取req.argv所代表的实际值
-	if err = cc.ReadBody(req.argv.Interface()); err != nil {
-		log.Println("rpc server: read argv err:", err)
+	req.svc, req.mtype, err = server.findServer(h.ServiceMethod)
+	if err != nil {
+		return req, err
+	}
+	req.argv = req.mtype.newArgv()
+	req.replyv = req.mtype.newReplyv()
+
+	argvi := req.argv.Interface()
+	// 检查是否是指针，不是是的话获得一个指针
+	if req.argv.Type().Kind() != reflect.Ptr {
+		argvi = req.argv.Addr().Interface()
+	}
+	if err = cc.ReadBody(argvi); err != nil {
+		log.Println("rpc server: read body err：", err)
+		return req, err
 	}
 	return req, nil
 }
@@ -151,4 +168,38 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.
 	log.Println(req.h, req.argv.Elem())
 	req.replyv = reflect.ValueOf(fmt.Sprintf("simpleRpc resp %d", req.h.Seq))
 	server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
+}
+
+func (server *Server) Register(rcvr interface{}) error {
+	s := newService(rcvr)
+	// 保存这个键值，如果保存的键值已经存在，那么返回true
+	if _, dup := server.serviceMap.LoadOrStore(s.name, s); dup {
+		return errors.New("rpc: service already defind：" + s.name)
+	}
+	return nil
+}
+
+func Register(rcvr interface{}) error {
+	return DefaultServer.Register(rcvr)
+}
+
+// 找到目标服务
+func (server *Server) findServer(serviceMethod string) (svc *service, mtype *methodType, err error) {
+	dot := strings.LastIndex(serviceMethod, ".")
+	if dot < 0 {
+		err = errors.New("rpc server：service/method request ill-formed：" + serviceMethod)
+		return
+	}
+	serviceName, methodName := serviceMethod[:dot], serviceMethod[dot:]
+	// 查看服务是否存在
+	svci, ok := server.serviceMap.Load(serviceName)
+	if !ok {
+		err = errors.New("rpc server：can't find service" + serviceName)
+	}
+	svc = svci.(*service)
+	mtype = svc.method[methodName]
+	if mtype == nil {
+		err = errors.New("rpc server：can't find method " + methodName)
+	}
+	return
 }

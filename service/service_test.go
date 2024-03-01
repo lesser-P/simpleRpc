@@ -42,7 +42,6 @@ func TestMethodType_Call(t *testing.T) {
 	var foo Foo
 	s := newService(&foo)
 	myType := s.method["Sum"]
-
 	argv := myType.newArgv()
 	replyv := myType.newReplyv()
 	argv.Set(reflect.ValueOf(Args{Num1: 1, Num2: 3}))

@@ -7,8 +7,8 @@ import (
 	"io"
 	"log"
 	"net"
-	"simpleRpc"
 	"simpleRpc/codec"
+	"simpleRpc/service"
 	"sync"
 )
 
@@ -29,7 +29,7 @@ func (call *Call) done() {
 
 type Client struct {
 	cc       codec.Codec // 编解码器
-	opt      *simpleRpc.Option
+	opt      *service.Option
 	sending  sync.Mutex
 	header   codec.Header
 	mu       sync.Mutex
@@ -121,7 +121,7 @@ func (client *Client) receive() {
 	client.terminateCalls(err)
 }
 
-func NewClient(conn net.Conn, opt *simpleRpc.Option) (*Client, error) {
+func NewClient(conn net.Conn, opt *service.Option) (*Client, error) {
 	f := codec.NewCodecFuncMap[opt.CodeType]
 	if f == nil {
 		err := fmt.Errorf("invalid code type %s", opt.CodeType)
@@ -136,7 +136,7 @@ func NewClient(conn net.Conn, opt *simpleRpc.Option) (*Client, error) {
 	return newClientCodec(f(conn), opt), nil
 }
 
-func newClientCodec(cc codec.Codec, opt *simpleRpc.Option) *Client {
+func newClientCodec(cc codec.Codec, opt *service.Option) *Client {
 	client := &Client{
 		seq:     1,
 		cc:      cc,
@@ -147,23 +147,23 @@ func newClientCodec(cc codec.Codec, opt *simpleRpc.Option) *Client {
 	return client
 }
 
-func parseOptions(opts ...*simpleRpc.Option) (*simpleRpc.Option, error) {
+func parseOptions(opts ...*service.Option) (*service.Option, error) {
 	if len(opts) == 0 || opts[0] == nil {
-		return simpleRpc.DefaultOption, nil
+		return service.DefaultOption, nil
 	}
 	if len(opts) != 1 {
 		return nil, errors.New("number of options is more than 1")
 	}
 	opt := opts[0]
-	opt.MagicNumber = simpleRpc.DefaultOption.MagicNumber
+	opt.MagicNumber = service.DefaultOption.MagicNumber
 	if opt.CodeType == "" {
-		opt.CodeType = simpleRpc.DefaultOption.CodeType
+		opt.CodeType = service.DefaultOption.CodeType
 	}
 	return opt, nil
 }
 
 // 用于创建一个客户端实例
-func Dial(network, address string, opts ...*simpleRpc.Option) (client *Client, err error) {
+func Dial(network, address string, opts ...*service.Option) (client *Client, err error) {
 	opt, err := parseOptions(opts...)
 	if err != nil {
 		return nil, err

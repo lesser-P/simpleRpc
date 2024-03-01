@@ -4,13 +4,26 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"simpleRpc"
 	"simpleRpc/client"
+	"simpleRpc/service"
 	"sync"
 	"time"
 )
 
+type Foo int
+type Args struct {
+	Num1, Num2 int
+}
+
+func (f Foo) Sum(args Args, reply *int) error {
+	*reply = args.Num1 + args.Num2
+	return nil
+}
+
 func startServer(addr chan string) {
+	var foo Foo
+	// 注册到服务中
+
 	// 在随机的端口创建一个监听
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -18,7 +31,7 @@ func startServer(addr chan string) {
 	}
 	log.Println("start rpc server on", l.Addr())
 	addr <- l.Addr().String()
-	simpleRpc.Accept(l)
+	service.Accept(l)
 }
 
 func main() {
