@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"simpleRpc/client"
@@ -23,7 +22,9 @@ func (f Foo) Sum(args Args, reply *int) error {
 func startServer(addr chan string) {
 	var foo Foo
 	// 注册到服务中
-
+	if err := service.Register(&foo); err != nil {
+		log.Fatal("register error:", err)
+	}
 	// 在随机的端口创建一个监听
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -52,13 +53,13 @@ func main() {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			args := fmt.Sprintf("simpleRpc req %d", i)
-			var reply string
+			args := &Args{Num1: i, Num2: i * i}
+			var reply int
 			// 发起调用
 			if err := cli.Call("Foo.Sum", args, &reply); err != nil {
 				log.Fatal("call Foo.Sum error:", err)
 			}
-			log.Println("reply:", reply)
+			log.Printf("%d + %d = %d:", args.Num1, args.Num2, reply)
 		}(i)
 	}
 	wg.Wait()

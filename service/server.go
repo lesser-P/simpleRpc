@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -137,6 +136,7 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 	if err != nil {
 		return req, err
 	}
+	// 新建两个入参实例，然后通过ReadBody将勤秋豹纹反序列化为第一个入参argv
 	req.argv = req.mtype.newArgv()
 	req.replyv = req.mtype.newReplyv()
 
@@ -164,9 +164,12 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 // 处理请求
 func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup) {
 	defer wg.Done()
-	// 获取指针或者接口所指向的实际值使用Elem()
-	log.Println(req.h, req.argv.Elem())
-	req.replyv = reflect.ValueOf(fmt.Sprintf("simpleRpc resp %d", req.h.Seq))
+	err := req.svc.call(req.mtype, req.argv, req.replyv)
+	if err != nil {
+		req.h.Error = err.Error()
+		server.sendResponse(cc, req.h, invalidRequest, sending)
+		return
+	}
 	server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
 }
 
@@ -190,7 +193,7 @@ func (server *Server) findServer(serviceMethod string) (svc *service, mtype *met
 		err = errors.New("rpc server：service/method request ill-formed：" + serviceMethod)
 		return
 	}
-	serviceName, methodName := serviceMethod[:dot], serviceMethod[dot:]
+	serviceName, methodName := serviceMethod[:dot], serviceMethod[dot+1:]
 	// 查看服务是否存在
 	svci, ok := server.serviceMap.Load(serviceName)
 	if !ok {
