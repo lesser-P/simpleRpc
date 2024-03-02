@@ -60,7 +60,7 @@ func main() {
 				log.Fatal("call Foo.Sum error:", err)
 			}
 			log.Printf("%d + %d = %d:", args.Num1, args.Num2, reply)
-		}(i)
+		}(i) //
 	}
 	wg.Wait()
 }
