@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"simpleRpc/codec"
 	"simpleRpc/service"
 	"sync"
+	"time"
 )
 
 // 承载一次RPC调用所需要的信息
@@ -37,6 +39,46 @@ type Client struct {
 	pending  map[uint64]*Call //存储未处理完的请求，键是编号，值是Call实例
 	closing  bool             //user has called Close
 	shutdown bool             //server has told us to stop 一般是有错误发生
+}
+
+type ClientResult struct {
+	client *Client
+	err    error
+}
+
+type newclientFunc func(conn net.Conn, opt *service.Option) (client *Client, err error)
+
+// 超时处理的外壳函数
+func dialTimeout(f newclientFunc, network, address string, opts ...*service.Option) (client *Client, err error) {
+	opt, err := parseOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.DialTimeout(network, address, opt.ConnectTimeout)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if client == nil {
+			_ = conn.Close()
+		}
+	}()
+	ch := make(chan ClientResult)
+	go func() {
+		client, err := f(conn, opt)
+		ch <- ClientResult{client, err}
+	}()
+
+	select {
+	case <-time.After(opt.ConnectTimeout):
+		return nil, fmt.Errorf("rpc client: connect timeout: expect within %s", opt.ConnectTimeout)
+	case result := <-ch:
+		return result.client, result.err
+	}
+}
+
+func Dial(network, address string, opts ...*service.Option) (*Client, error) {
+	return dialTimeout(NewClient, network, address, opts...)
 }
 
 var _ io.Closer = (*Client)(nil)
@@ -162,24 +204,6 @@ func parseOptions(opts ...*service.Option) (*service.Option, error) {
 	return opt, nil
 }
 
-// 用于创建一个客户端实例
-func Dial(network, address string, opts ...*service.Option) (client *Client, err error) {
-	opt, err := parseOptions(opts...)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.Dial(network, address)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if client == nil {
-			_ = conn.Close()
-		}
-	}()
-	return NewClient(conn, opt)
-}
-
 func (client *Client) send(call *Call) {
 	client.sending.Lock()
 	defer client.sending.Unlock()
@@ -224,8 +248,18 @@ func (client *Client) Go(serviceMethod string, args, reply interface{}, done cha
 }
 
 // Call 是同步调用
-func (client *Client) Call(serviceMethod string, args, reply interface{}) error {
+func (client *Client) Call(ctx context.Context, serviceMethod string, args, reply interface{}) error {
 	// 返回执行完毕的call
 	call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
-	return call.Error
+	select {
+	// 返回一个通道，在ctx被取消或者超时时会关闭
+	case <-ctx.Done():
+		// 移除一个正在进行的调用，并返回一个错误
+		client.removeCall(call.Seq)
+		return errors.New("rpc client call failed:" + ctx.Err().Error())
+	case call := <-call.Done:
+		// 调用超时或者取消则返回调用的错误信息
+		return call.Error
+
+	}
 }

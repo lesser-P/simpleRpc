@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -10,13 +11,16 @@ import (
 	"simpleRpc/codec"
 	"strings"
 	"sync"
+	"time"
 )
 
 const MagicNumber = 0x3bef5c
 
 type Option struct {
-	MagicNumber int
-	CodeType    codec.Type
+	MagicNumber    int
+	CodeType       codec.Type
+	ConnectTimeout time.Duration
+	HandleTimeout  time.Duration
 }
 type request struct {
 	h            *codec.Header
@@ -27,8 +31,9 @@ type request struct {
 
 // 编解码方式
 var DefaultOption = &Option{
-	MagicNumber: MagicNumber,
-	CodeType:    codec.GobType,
+	MagicNumber:    MagicNumber,
+	CodeType:       codec.GobType,
+	ConnectTimeout: time.Second * 10, // 连接超时10s
 }
 
 // Option由JSON来编解码，Header和Body由CodeType来决定编解码方式
@@ -162,15 +167,35 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 }
 
 // 处理请求
-func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup) {
+func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.Mutex, wg *sync.WaitGroup, timeout time.Duration) {
 	defer wg.Done()
-	err := req.svc.call(req.mtype, req.argv, req.replyv)
-	if err != nil {
-		req.h.Error = err.Error()
-		server.sendResponse(cc, req.h, invalidRequest, sending)
+	called := make(chan struct{})
+	sent := make(chan struct{})
+	go func() {
+		err := req.svc.call(req.mtype, req.argv, req.replyv)
+		called <- struct{}{}
+		if err != nil {
+			req.h.Error = err.Error()
+			server.sendResponse(cc, req.h, invalidRequest, sending)
+			sent <- struct{}{}
+			return
+		}
+		server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
+		sent <- struct{}{}
+	}()
+	if timeout == 0 {
+		<-called
+		<-sent
 		return
 	}
-	server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
+	select {
+	case <-time.After(timeout):
+		req.h.Error = fmt.Errorf("rpc server: request handle timeout within %s", timeout).Error()
+		server.sendResponse(cc, req.h, invalidRequest, sending)
+	case <-called:
+		<-sent
+	}
+
 }
 
 func (server *Server) Register(rcvr interface{}) error {
