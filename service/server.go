@@ -110,7 +110,7 @@ func (server *Server) serverCodec(cc codec.Codec) {
 			continue
 		}
 		wg.Add(1)
-		go server.handleRequest(cc, req, send, wg)
+		go server.handleRequest(cc, req, send, wg, time.Second*10)
 	}
 	wg.Wait()
 	_ = cc.Close()
