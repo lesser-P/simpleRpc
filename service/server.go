@@ -184,6 +184,7 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.
 		sent <- struct{}{}
 	}()
 	if timeout == 0 {
+		// 通道阻塞直到有数据写入
 		<-called
 		<-sent
 		return
@@ -193,9 +194,9 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.
 		req.h.Error = fmt.Errorf("rpc server: request handle timeout within %s", timeout).Error()
 		server.sendResponse(cc, req.h, invalidRequest, sending)
 	case <-called:
+		// 在called得到后等待sent
 		<-sent
 	}
-
 }
 
 func (server *Server) Register(rcvr interface{}) error {

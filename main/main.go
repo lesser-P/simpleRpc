@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"simpleRpc/client"
@@ -56,7 +57,7 @@ func main() {
 			args := &Args{Num1: i, Num2: i * i}
 			var reply int
 			// 发起调用
-			if err := cli.Call("Foo.Sum", args, &reply); err != nil {
+			if err := cli.Call(context.Background(), "Foo.Sum", args, &reply); err != nil {
 				log.Fatal("call Foo.Sum error:", err)
 			}
 			log.Printf("%d + %d = %d:", args.Num1, args.Num2, reply)
