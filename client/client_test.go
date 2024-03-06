@@ -22,7 +22,7 @@ func TestClient_dialTimeout(t *testing.T) {
 		time.Sleep(2 * time.Second)
 		return nil, nil
 	}
-
+	//
 	t.Run("func timeout", func(t *testing.T) {
 		_, err := dialTimeout(f, l.Addr().Network(), l.Addr().String(), &service.Option{ConnectTimeout: time.Second})
 		_assert(err != nil, "expect a timeout error")
