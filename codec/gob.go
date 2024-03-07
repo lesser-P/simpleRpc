@@ -33,6 +33,9 @@ func (c *GobCodec) ReadHeader(h *Header) error {
 func (c *GobCodec) ReadBody(body interface{}) error {
 	return c.dec.Decode(body)
 }
+func (c *GobCodec) Close() error {
+	return c.conn.Close()
+}
 func (c *GobCodec) Write(h *Header, body interface{}) (err error) {
 	defer func() {
 		_ = c.buf.Flush()
@@ -50,7 +53,4 @@ func (c *GobCodec) Write(h *Header, body interface{}) (err error) {
 		return err
 	}
 	return nil
-}
-func (c *GobCodec) Close() error {
-	return c.conn.Close()
 }

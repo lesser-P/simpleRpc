@@ -1,4 +1,4 @@
-package service
+package simpleRpc
 
 import (
 	"go/ast"

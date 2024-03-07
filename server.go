@@ -1,4 +1,4 @@
-package service
+package simpleRpc
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
 	"simpleRpc/codec"
 	"strings"
@@ -183,18 +184,20 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sending *sync.
 		server.sendResponse(cc, req.h, req.replyv.Interface(), sending)
 		sent <- struct{}{}
 	}()
+	// 如果超时时间为0，那么就一直等待
 	if timeout == 0 {
-		// 通道阻塞直到有数据写入
 		<-called
 		<-sent
 		return
 	}
 	select {
+	// 如果超时了，那么就返回错误
 	case <-time.After(timeout):
 		req.h.Error = fmt.Errorf("rpc server: request handle timeout within %s", timeout).Error()
 		server.sendResponse(cc, req.h, invalidRequest, sending)
+		// 如果 被调用了那么等待sent被传入，同时阻塞
 	case <-called:
-		// 在called得到后等待sent
+		// 等待sendResponse被调用
 		<-sent
 	}
 }
@@ -231,4 +234,38 @@ func (server *Server) findServer(serviceMethod string) (svc *service, mtype *met
 		err = errors.New("rpc server：can't find method " + methodName)
 	}
 	return
+}
+
+const (
+	connected        = "200 Connected to simple rpc"
+	defaultRPCPath   = "/_simperpc_"
+	defaultDebugpath = "/debug/simplerpc"
+)
+
+// 服务端支持HTTP协议
+func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "CONNECT" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = io.WriteString(w, "405 must CONNECT\n")
+		return
+	}
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		log.Print("rpc hijacking", req.RemoteAddr, ":", err.Error())
+		return
+	}
+	_, _ = io.WriteString(conn, "HTTP/1.0"+connected+"\n\n")
+	server.ServerConn(conn)
+}
+
+// 把实例绑定到指定地址
+func (server *Server) HandleHTTP() {
+	//算是注册路由
+	http.Handle(defaultRPCPath, server)
+	http.Handle(defaultDebugpath, debugHTTP{server})
+}
+
+func HandleHTTP() {
+	DefaultServer.HandleHTTP()
 }
